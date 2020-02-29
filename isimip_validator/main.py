@@ -1,6 +1,7 @@
 import argparse
 import logging
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -25,14 +26,19 @@ def main():
     simulation_round = 'ISIMIP' + args.simulation_round.lower().replace('isimip', '')
     period = 'OutputData'
     sector = args.sector.lower()
+    path = Path(args.path)
 
     # setup the Validator class
     validator = Validator(simulation_round, period, sector)
 
     # walk over files and validate
-    if not os.path.exists(args.path):
-        parser.error('Path does not exist {}'.format(args.path))
+    if not path.exists():
+        parser.error('Path does not exist {}'.format(path))
 
-    for root, dirs, files in os.walk(args.path):
-        for file_name in files:
-            validator.validate_file_name(file_name)
+    if path.is_file():
+        validator.validate(args.path)
+    else:
+        for root, dirs, files in os.walk(path):
+            for file_name in files:
+                file_path = Path(root) / file_name
+                validator.validate(file_path)

@@ -2,10 +2,10 @@ import json
 import logging
 import os
 import re
+from pathlib import Path
 from urllib.parse import urlparse
 
 import jsonschema
-
 import requests
 
 logger = logging.getLogger(__name__)
@@ -21,11 +21,14 @@ class Validator(object):
         schema_path = '{}/{}/{}.json'.format(simulation_round, period, sector)
 
         pattern_bases = os.getenv('PATTERN_LOCATIONS', 'https://protocol.isimip.org/pattern/').split()
-        pattern_json = self.fetch_json(pattern_bases, schema_path)
-        self.pattern = '_'.join(pattern_json['file'])
+        self.pattern = self.fetch_json(pattern_bases, schema_path).get('file')
+
+        logger.debug('pattern = %s', self.pattern)
 
         schema_bases = os.getenv('SCHEMA_LOCATIONS', 'https://protocol.isimip.org/schema/').split()
         self.schema = self.fetch_json(schema_bases, schema_path)
+
+        logger.debug('schema = %s', self.schema)
 
     def fetch_json(self, bases, path):
         for base in bases:
@@ -36,32 +39,30 @@ class Validator(object):
                     return response.json()
 
             else:
-                location = os.path.join(os.path.expanduser(base), path)
-                if os.path.exists(location):
+                location = Path(base) / path
+                if location.exists():
                     return json.loads(open(location).read())
 
         raise RuntimeError('{} not found in {}'.format(path, bases))
 
-    def validate_file_name(self, file_name):
-        logger.debug('file_name = %s', file_name)
+    def validate(self, file_path):
+        logger.info('file_path = %s', file_path)
 
-        instance = {
-            'identifiers': {}
-        }
+        instance = {}
+        m = re.match(self.pattern, file_path.name)
+        if m:
+            for key, value in m.groupdict().items():
+                if value is not None:
+                    if value.isdigit():
+                        instance[key] = int(value)
+                    else:
+                        instance[key] = value
+        else:
+            logger.error('could not match %s', file_path)
 
-        if file_name.endswith('.nc') or file_name.endswith('.nc4'):
-            m = re.match(self.pattern, file_name)
-            if m:
-                for key, value in m.groupdict().items():
-                    if value is not None:
-                        if value.isdigit():
-                            instance['identifiers'][key] = int(value)
-                        else:
-                            instance['identifiers'][key] = value
-            else:
-                logger.error('could not match %s', file_name)
+        logger.debug('instance = %s', instance)
 
         try:
             jsonschema.validate(instance, self.schema)
         except jsonschema.exceptions.ValidationError as e:
-            logger.error('could not validate %s: %s', file_name, e)
+            logger.error('could not validate %s: %s', file_path, e)
